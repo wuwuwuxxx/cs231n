@@ -1,0 +1,155 @@
+import numpy as np
+
+from cs231n.layers import *
+from cs231n.fast_layers import *
+from cs231n.layer_utils import *
+
+
+class FiveLayerConvNet(object):
+  """
+  A five-layer convolutional network with the following architecture:
+
+  conv1-BN1-relu1-conv2-BN2-relu2-pool1-conv3-BN3-relu3-pool2-affine1-BN4-relu-affine-softmax
+
+  The network operates on minibatches of data that have shape (N, C, H, W)
+  consisting of N images, each with height H and width W and with C input
+  channels.
+  """
+
+  def __init__(self, input_dim=(3, 32, 32), num_classes=10, reg=0.0,
+               dtype=np.float32):
+    """
+    Initialize a new network.
+
+    Inputs:
+    - input_dim: Tuple (C, H, W) giving size of input data
+    - num_filters: Number of filters to use in the convolutional layer
+    - filter_size: Size of filters to use in the convolutional layer
+    - hidden_dim: Number of units to use in the fully-connected hidden layer
+    - num_classes: Number of scores to produce from the final affine layer.
+    - weight_scale: Scalar giving standard deviation for random initialization
+      of weights.
+    - reg: Scalar giving L2 regularization strength
+    - dtype: numpy datatype to use for computation.
+    """
+    self.params = {}
+    self.reg = reg
+    self.dtype = dtype
+
+    self.bn_param1 = {'mode': 'train'}
+    self.bn_param2 = {'mode': 'train'}
+    self.bn_param3 = {'mode': 'train'}
+    self.bn_param4 = {'mode': 'train'}
+
+    # network architecture
+    filter_size1 = 5
+    num_filters1 = 32
+    weight_scale1 = 1/np.sqrt(input_dim[0] * filter_size1 ** 2)
+    self.conv1_param = {'stride': 1, 'pad': (filter_size1-1)/2}
+    filter_size2 = 3
+    num_filters2 = 64
+    weight_scale2 = 1/np.sqrt(num_filters1 * filter_size2 ** 2)
+    self.conv2_param = {'stride': 1, 'pad': (filter_size2-1)/2}
+    filter_size3 = 3
+    num_filters3 = 128
+    weight_scale3 = 1/np.sqrt(num_filters3 * filter_size3 ** 2)
+    self.conv3_param = {'stride': 1, 'pad': (filter_size3-1)/2}
+
+    fc_dim = 512
+    weight_scale4 = 1/np.sqrt(num_filters3*input_dim[1]**2/4)
+
+    weight_scale5 = 1/np.sqrt(fc_dim)
+
+    # initialize
+    self.params['W1'] = np.random.normal(scale=weight_scale1, size=(num_filters1, input_dim[0], filter_size1, filter_size1))
+    self.params['gamma1'] = np.random.rand(num_filters1)
+    self.params['beta1'] = np.random.rand(num_filters1)
+
+    self.params['W2'] = np.random.normal(scale=weight_scale2, size=(num_filters2, num_filters1, filter_size2, filter_size2))
+    self.params['gamma2'] = np.random.rand(num_filters2)
+    self.params['beta2'] = np.random.rand(num_filters2)
+
+    self.params['W3'] = np.random.normal(scale=weight_scale3, size=(num_filters3, num_filters2, filter_size3, filter_size3))
+    self.params['gamma3'] = np.random.rand(num_filters3)
+    self.params['beta3'] = np.random.rand(num_filters3)
+
+    self.params['W4'] = np.random.normal(scale=weight_scale4, size=(num_filters3*input_dim[2]**2/16, fc_dim))
+    self.params['gamma4'] = np.random.rand(fc_dim)
+    self.params['beta4'] = np.random.rand(fc_dim)
+
+    self.params['W5'] = np.random.normal(scale=weight_scale5, size=(fc_dim, num_classes))
+    self.params['b5'] = np.zeros(num_classes)
+    ############################################################################
+    #                             END OF YOUR CODE                             #
+    ############################################################################
+
+    for k, v in self.params.iteritems():
+      self.params[k] = v.astype(dtype)
+
+
+  def loss(self, X, y=None):
+    """
+    Evaluate loss and gradient for the three-layer convolutional network.
+
+    Input / output: Same API as TwoLayerNet in fc_net.py.
+    """
+    W1 = self.params['W1']
+    W2 = self.params['W2']
+    W3 = self.params['W3']
+    W4 = self.params['W4']
+    W5, b5 = self.params['W5'], self.params['b5']
+    gamma1, beta1 = self.params['gamma1'], self.params['beta1']
+    gamma2, beta2 = self.params['gamma2'], self.params['beta2']
+    gamma3, beta3 = self.params['gamma3'], self.params['beta3']
+    gamma4, beta4 = self.params['gamma4'], self.params['beta4']
+
+    # pass pool_param to the forward pass for the max-pooling layer
+    pool_param = {'pool_height': 2, 'pool_width': 2, 'stride': 2}
+
+    scores = None
+    ############################################################################
+    # TODO: Implement the forward pass for the five-layer convolutional net,  #
+    # computing the class scores for X and storing them in the scores          #
+    # variable.                                                                #
+    ############################################################################
+    layer1_out, layer1_cache = conv_bn_relu_forward(X, W1, gamma1, beta1, self.conv1_param, self.bn_param1)
+    layer2_out, layer2_cache = conv_bn_relu_pool_forward(layer1_out, W2, gamma2, beta2, self.conv2_param, self.bn_param2, pool_param)
+    layer3_out, layer3_cache = conv_bn_relu_pool_forward(layer2_out, W3, gamma3, beta3, self.conv3_param, self.bn_param3, pool_param)
+    layer4_out, layer4_cache = aff_bn_relu_forward(layer3_out, W4, gamma4, beta4, self.bn_param4)
+    scores, scores_cache = affine_forward(layer4_out, W5, b5)
+    ############################################################################
+    #                             END OF YOUR CODE                             #
+    ############################################################################
+
+    if y is None:
+      return scores
+
+    loss, grads = 0, {}
+    ############################################################################
+    # TODO: Implement the backward pass for the three-layer convolutional net, #
+    # storing the loss and gradients in the loss and grads variables. Compute  #
+    # data loss using softmax, and make sure that grads[k] holds the gradients #
+    # for self.params[k]. Don't forget to add L2 regularization!               #
+    ############################################################################
+    loss, dx = softmax_loss(scores, y)
+    loss += 0.5 * self.reg * (np.linalg.norm(W1)**2 + np.linalg.norm(W2)**2 + np.linalg.norm(W3)**2 + np.linalg.norm(W4)**2 + np.linalg.norm(W5)**2)
+    dx, grads['W5'], grads['b5'] = affine_backward(dx, scores_cache)
+
+    dx, grads['W4'], grads['gamma4'], grads['beta4'] = aff_bn_relu_backward(dx, layer4_cache)
+    dx, grads['W3'], grads['gamma3'], grads['beta3'] = conv_bn_relu_pool_backward(dx, layer3_cache)
+    dx, grads['W2'], grads['gamma2'], grads['beta2'] = conv_bn_relu_pool_backward(dx, layer2_cache)
+    _, grads['W1'], grads['gamma1'], grads['beta1'] = conv_bn_relu_backward(dx, layer1_cache)
+
+    grads['W5'] += self.reg * W5
+    grads['W4'] += self.reg * W4
+    grads['W3'] += self.reg * W3
+    grads['W2'] += self.reg * W2
+    grads['W1'] += self.reg * W1
+    ############################################################################
+    #                             END OF YOUR CODE                             #
+    ############################################################################
+
+    return loss, grads
+
+
+pass
